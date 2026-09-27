@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { api, joinUrl } from '../lib/api'
+import { serviceColor } from '../lib/colors'
 import { useLive } from '../lib/live'
 import { isLocalhost, usePublicOrigin } from '../lib/network'
 import { Alert, Button, Shell, Stat, formatMinutes } from '../components/ui'
+
+const PAUSE_CHIPS = ['Lunch break, back at 2:00 PM', 'Back in 10 minutes', 'Closed for today']
+
+function waitMinutes(createdAt) {
+  if (!createdAt) return '–'
+  const mins = Math.round((Date.now() - new Date(createdAt).getTime()) / 60000)
+  return Math.max(0, mins)
+}
 
 export default function Staff() {
   const [services, setServices] = useState([])
@@ -11,7 +20,8 @@ export default function Staff() {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
-  const [pauseMsg, setPauseMsg] = useState('Lunch break, back at 2:00 PM.')
+  const [pauseMsg, setPauseMsg] = useState(PAUSE_CHIPS[0])
+  const [pauseOpen, setPauseOpen] = useState(false)
   const debounce = useRef(null)
   const sidRef = useRef(null)
   sidRef.current = sid
@@ -54,6 +64,7 @@ export default function Staff() {
       try {
         await api(path, { method: 'POST', body })
         await load()
+        if (key === 'pause') setPauseOpen(false)
       } catch (e) {
         setError(e.message)
       } finally {
@@ -63,7 +74,6 @@ export default function Staff() {
     [load]
   )
 
-  // Keyboard shortcut: N calls the next token
   useEffect(() => {
     const onKey = (e) => {
       if (e.key.toLowerCase() === 'n' && !['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName) && sidRef.current && !busy) {
@@ -75,27 +85,33 @@ export default function Staff() {
   }, [act, busy])
 
   const s = data?.service
+  const c = s ? serviceColor(s) : null
 
   return (
     <Shell live={live}>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-extrabold wide">Counter controls</h1>
-          <p className="text-muted mt-1">Call tokens, handle no-shows, and pause the queue when you step away.</p>
-        </div>
-      </div>
-
-      <nav aria-label="Choose service" className="mt-6 flex gap-2 overflow-x-auto pb-1">
-        {services.map((svc) => (
-          <button
-            key={svc.id}
-            onClick={() => setSid(svc.id)}
-            aria-current={svc.id === sid}
-            className={`whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold border ${svc.id === sid ? 'bg-ink text-white border-ink' : 'bg-white border-line hover:border-ink'}`}
-          >
-            {svc.name}
-          </button>
-        ))}
+      <nav aria-label="Choose service" className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+        {services.map((svc) => {
+          const sc = serviceColor(svc)
+          const active = svc.id === sid
+          return (
+            <button
+              key={svc.id}
+              onClick={() => setSid(svc.id)}
+              aria-current={active}
+              className={`whitespace-nowrap rounded-full px-4 min-h-[48px] text-sm font-bold border-2 flex items-center gap-2 transition-colors ${
+                active ? '' : 'bg-white border-line text-ink'
+              }`}
+              style={active ? { backgroundColor: sc.bg, color: sc.text, borderColor: sc.bg } : undefined}
+            >
+              <span
+                className="w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ backgroundColor: active ? 'rgba(255,255,255,0.9)' : sc.bg }}
+                aria-hidden
+              />
+              {svc.name}
+            </button>
+          )
+        })}
       </nav>
 
       <div className="mt-4">
@@ -103,127 +119,185 @@ export default function Staff() {
       </div>
 
       {!data ? (
-        <div className="mt-6 h-72 bg-white rounded-2xl border border-line animate-pulse" />
+        <div className="mt-6 h-80 bg-soft rounded-3xl animate-pulse" />
       ) : (
-        <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_340px]">
-          <div className="space-y-6">
-            <section className={`rounded-2xl p-6 sm:p-8 ${s.is_paused ? 'bg-white border-2 border-dashed border-ink/40' : 'bg-ink text-white'}`}>
-              <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="mt-6 space-y-6">
+          <section
+            className={`rounded-3xl p-6 sm:p-8 ${s.is_paused ? 'bg-soft text-ink' : ''}`}
+            style={s.is_paused ? undefined : { backgroundColor: c.bg, color: c.text }}
+          >
+            {s.is_paused ? (
+              <>
+                <p className="text-sm font-semibold text-muted uppercase tracking-wide">Queue paused</p>
+                <p className="text-3xl sm:text-4xl font-extrabold wide mt-3 leading-tight">{s.pause_message}</p>
+                <p className="text-muted mt-2 text-sm">Students see this message and keep their place.</p>
+                <button
+                  type="button"
+                  disabled={busy === 'resume'}
+                  onClick={() => act('resume', `/api/staff/services/${sid}/resume`)}
+                  className="mt-6 w-full min-h-[96px] rounded-2xl bg-ink text-white text-xl font-bold active:scale-[0.98] disabled:opacity-50"
+                >
+                  {busy === 'resume' ? 'Working…' : 'Resume'}
+                </button>
+              </>
+            ) : (
+              <div className="grid gap-6 lg:grid-cols-[1fr_280px] lg:items-center">
                 <div>
-                  <p className={s.is_paused ? 'text-muted' : 'text-white/60'}>{s.is_paused ? 'Queue paused' : 'Now serving'}</p>
-                  <div key={data.current?.label} className={`flip-in numeral text-[6rem] sm:text-[8rem] ${s.is_paused ? 'text-ink/40' : 'text-signal'}`}>
+                  <p className="text-sm opacity-80 uppercase tracking-wide font-semibold">Now serving</p>
+                  <div key={data.current?.label} className="flip-in numeral text-[5rem] sm:text-[7rem] lg:text-[8rem] text-lime leading-none mt-1">
                     {data.current?.label || '–'}
                   </div>
-                  {s.is_paused && <p className="font-semibold">Students see: "{s.pause_message}"</p>}
+                  <p className="text-sm opacity-70 mt-2">{s.counter}</p>
                 </div>
-                <div className={`text-right text-sm ${s.is_paused ? 'text-muted' : 'text-white/60'}`}>
-                  <div>{s.counter}</div>
-                  <div>{data.waiting.length} waiting</div>
+
+                <div className="flex flex-col gap-3">
+                  <button
+                    type="button"
+                    disabled={busy === 'next' || data.waiting.length === 0}
+                    onClick={() => act('next', `/api/staff/services/${sid}/call-next`)}
+                    title="Shortcut: N"
+                    className="w-full min-h-[96px] rounded-2xl bg-white text-ink text-2xl font-extrabold active:scale-[0.98] disabled:opacity-50"
+                  >
+                    {busy === 'next' ? 'Working…' : 'Call next'}
+                  </button>
+                  <p className="text-center text-xs opacity-60">Press N</p>
                 </div>
               </div>
+            )}
 
-              <div className="mt-6 flex flex-wrap gap-3">
-                <Button
-                  variant="primary"
-                  className="text-lg px-6 py-3"
-                  busy={busy === 'next'}
-                  disabled={s.is_paused || data.waiting.length === 0}
-                  onClick={() => act('next', `/api/staff/services/${sid}/call-next`)}
-                  title="Shortcut: N"
+            {!s.is_paused && (
+              <div className="mt-6 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  disabled={!data.current || busy === 'serve'}
+                  onClick={() => act('serve', `/api/staff/services/${sid}/serve`)}
+                  className="min-h-[52px] rounded-2xl border-2 border-white/35 font-bold text-base active:scale-[0.98] disabled:opacity-40"
                 >
-                  Call next
-                </Button>
-                <Button variant="ghost" busy={busy === 'serve'} disabled={!data.current} onClick={() => act('serve', `/api/staff/services/${sid}/serve`)}>
-                  Mark served
-                </Button>
-                <Button variant="danger" busy={busy === 'skip'} disabled={!data.current} onClick={() => act('skip', `/api/staff/services/${sid}/skip`)}>
-                  No-show
-                </Button>
+                  {busy === 'serve' ? 'Working…' : 'Served'}
+                </button>
+                <button
+                  type="button"
+                  disabled={!data.current || busy === 'skip'}
+                  onClick={() => act('skip', `/api/staff/services/${sid}/skip`)}
+                  className="min-h-[52px] rounded-2xl border-2 border-white/35 font-bold text-base active:scale-[0.98] disabled:opacity-40"
+                >
+                  {busy === 'skip' ? 'Working…' : 'No-show'}
+                </button>
               </div>
-              {!s.is_paused && data.waiting.length === 0 && <p className="mt-3 text-sm text-white/60">Nobody is waiting. New tokens appear here instantly.</p>}
-              {!s.is_paused && <p className="mt-3 text-xs text-white/40 hidden sm:block">Press N to call the next token.</p>}
-            </section>
+            )}
+          </section>
 
-            <section className="bg-white rounded-2xl border border-line p-5">
-              <h2 className="font-bold">Pause this queue</h2>
-              <p className="text-sm text-muted">Everyone waiting sees your message instantly and keeps their place.</p>
-              {s.is_paused ? (
-                <Button className="mt-3" variant="dark" busy={busy === 'resume'} onClick={() => act('resume', `/api/staff/services/${sid}/resume`)}>
-                  Resume queue
-                </Button>
+          {!s.is_paused && (
+            <section className="rounded-3xl bg-soft p-5">
+              {!pauseOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setPauseOpen(true)}
+                  className="w-full min-h-[52px] rounded-2xl border-2 border-line bg-white font-bold text-ink active:scale-[0.98]"
+                >
+                  Pause queue
+                </button>
               ) : (
-                <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                <div className="space-y-4">
+                  <p className="font-bold">Pause message for students</p>
+                  <div className="flex flex-wrap gap-2">
+                    {PAUSE_CHIPS.map((chip) => (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => setPauseMsg(chip)}
+                        className={`rounded-2xl px-4 py-2.5 text-sm font-semibold min-h-[48px] border-2 active:scale-[0.98] ${
+                          pauseMsg === chip ? 'border-ink bg-ink text-white' : 'border-line bg-white text-ink'
+                        }`}
+                      >
+                        {chip}
+                      </button>
+                    ))}
+                  </div>
                   <label htmlFor="pause-msg" className="sr-only">
-                    Message for students
+                    Custom pause message
                   </label>
                   <input
                     id="pause-msg"
                     value={pauseMsg}
                     maxLength={120}
                     onChange={(e) => setPauseMsg(e.target.value)}
-                    className="flex-1 rounded-lg border border-line px-3 py-2.5 outline-none focus:border-ink"
+                    className="w-full min-h-[52px] rounded-xl border-2 border-line px-4 text-base outline-none focus:border-ink bg-white"
                   />
-                  <Button variant="dark" busy={busy === 'pause'} onClick={() => act('pause', `/api/staff/services/${sid}/pause`, { message: pauseMsg })}>
-                    Pause and notify
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="primary"
+                      className="flex-1"
+                      busy={busy === 'pause'}
+                      onClick={() => act('pause', `/api/staff/services/${sid}/pause`, { message: pauseMsg })}
+                    >
+                      Confirm pause
+                    </Button>
+                    <Button variant="ghost" onClick={() => setPauseOpen(false)}>
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
               )}
             </section>
+          )}
 
-            <section className="bg-white rounded-2xl border border-line">
-              <h2 className="font-bold px-5 pt-5">Waiting list</h2>
-              {data.waiting.length === 0 ? (
-                <p className="px-5 pb-5 pt-2 text-sm text-muted">The line is empty.</p>
-              ) : (
-                <ol className="mt-3 divide-y divide-line">
-                  {data.waiting.map((w, i) => (
-                    <li key={w.id} className="flex items-center gap-4 px-5 py-3">
-                      <span className="text-muted text-sm w-6">{i + 1}</span>
-                      <span className="numeral text-2xl w-20">{w.label}</span>
-                      <span className="flex-1 text-sm truncate">{w.user_name || 'Walk-in'}</span>
-                      {w.priority ? (
-                        <span className="text-xs font-bold bg-ink text-white rounded-full px-2.5 py-1">Priority</span>
-                      ) : (
-                        <button
-                          onClick={() => act(`prio-${w.id}`, `/api/staff/tokens/${w.id}/priority`)}
-                          disabled={busy === `prio-${w.id}`}
-                          className="text-xs font-semibold underline underline-offset-2 text-muted hover:text-ink"
-                        >
-                          Move to priority lane
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </section>
+          <section>
+            <h2 className="font-bold text-lg mb-3">Waiting</h2>
+            {data.waiting.length === 0 ? (
+              <p className="text-sm text-muted py-4">The line is empty.</p>
+            ) : (
+              <ol className="divide-y divide-line">
+                {data.waiting.map((w) => (
+                  <li key={w.id} className="flex items-center gap-3 py-3 min-h-[52px]">
+                    <span className="numeral text-2xl font-extrabold w-20 shrink-0">{w.label}</span>
+                    <span className="flex-1 truncate text-sm">{w.user_name || 'Walk-in'}</span>
+                    <span className="text-sm text-muted shrink-0">{waitMinutes(w.created_at)}m</span>
+                    {w.priority ? (
+                      <span className="shrink-0 text-xs font-bold bg-lime text-ink rounded-full px-2.5 py-1">Priority</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => act(`prio-${w.id}`, `/api/staff/tokens/${w.id}/priority`)}
+                        disabled={busy === `prio-${w.id}`}
+                        className="shrink-0 text-xs font-semibold text-muted underline underline-offset-2 min-h-[48px] px-1"
+                      >
+                        Priority
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-6">
+            <Stat label="Served today" value={data.stats.served} />
+            <Stat label="Waiting" value={data.stats.waiting} />
+            <Stat label="Avg wait" value={data.stats.avg_wait_min ? formatMinutes(data.stats.avg_wait_min) : '–'} />
+            <Stat label="No-shows" value={data.stats.skipped} />
           </div>
 
-          <aside className="space-y-6">
-            <div className="grid grid-cols-2 gap-3">
-              <Stat label="Served today" value={data.stats.served} />
-              <Stat label="Waiting" value={data.stats.waiting} />
-              <Stat label="Avg wait" value={data.stats.avg_wait_min ? formatMinutes(data.stats.avg_wait_min) : '–'} />
-              <Stat label="No-shows" value={data.stats.skipped} />
-            </div>
-
-            <div className="bg-white rounded-2xl border border-line p-5 text-center">
-              <h2 className="font-bold">Scan to join {s.name}</h2>
-              <p className="text-sm text-muted mb-4">Print this at the counter or show it on the display.</p>
-              <div className="inline-block bg-white p-3 rounded-xl border border-line">
-                <QRCodeSVG value={joinUrl(sid, origin)} size={180} fgColor="#15224a" />
+          <details className="rounded-3xl bg-soft p-5 group">
+            <summary className="font-bold cursor-pointer list-none flex items-center justify-between min-h-[48px] [&::-webkit-details-marker]:hidden">
+              Join QR and TV screen
+              <span className="text-muted text-sm group-open:rotate-180 transition-transform">▼</span>
+            </summary>
+            <div className="mt-4 text-center">
+              <div className="inline-block bg-white p-3 rounded-xl">
+                <QRCodeSVG value={joinUrl(sid, origin)} size={180} fgColor="#101828" />
               </div>
               <p className="text-xs text-muted mt-3 break-all">{joinUrl(sid, origin)}</p>
               {isLocalhost(origin) && (
-                <p className="text-xs text-stop mt-2">
+                <p className="text-xs text-danger mt-2">
                   This link only works on this laptop. Connect to Wi-Fi or a hotspot, or set VITE_PUBLIC_URL to a tunnel address.
                 </p>
               )}
-              <a href={`/display/${sid}`} target="_blank" rel="noreferrer" className="mt-4 inline-block text-sm font-semibold underline underline-offset-4">
+              <a href={`/display/${sid}`} target="_blank" rel="noreferrer" className="mt-4 inline-block text-sm font-semibold underline underline-offset-4 min-h-[48px] leading-[48px]">
                 Open the TV display for this counter
               </a>
             </div>
-          </aside>
+          </details>
         </div>
       )}
     </Shell>

@@ -1,11 +1,35 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { api } from '../lib/api'
+import { serviceColor } from '../lib/colors'
 import { useLive } from '../lib/live'
 import { Alert, Button, Field, Shell, Stat, formatMinutes, hourLabel } from '../components/ui'
 import Heatmap from '../components/Heatmap'
 
 const EMPTY = { name: '', code: '', counter: '', description: '', documents: '', keywords: '' }
+
+function ErrorBars({ model, naive }) {
+  const max = Math.max(model, naive, 1)
+  const rows = [
+    { label: 'Model', value: model, tone: 'bg-ink' },
+    { label: 'Simple average', value: naive, tone: 'bg-muted' },
+  ]
+  return (
+    <div className="mt-5 space-y-3">
+      {rows.map((r) => (
+        <div key={r.label}>
+          <div className="flex justify-between text-sm mb-1">
+            <span className="text-muted">{r.label}</span>
+            <span className="font-bold">± {r.value} min</span>
+          </div>
+          <div className="h-3 rounded-full bg-white overflow-hidden">
+            <div className={`h-full rounded-full ${r.tone}`} style={{ width: `${(r.value / max) * 100}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export default function Admin() {
   const [overview, setOverview] = useState(null)
@@ -93,134 +117,122 @@ export default function Admin() {
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
   const k = overview?.kpis
   const m = overview?.model
+  const heatService = services.find((s) => s.id === heatSid)
+  const heatColors = heatService ? serviceColor(heatService) : null
+  const totalServed = overview?.services?.reduce((sum, s) => sum + s.served, 0) || 0
 
   return (
     <Shell live={live}>
-      <h1 className="text-3xl font-extrabold wide">Operations overview</h1>
-      <p className="text-muted mt-1">How every counter is doing today, and where the lines are longest.</p>
-
-      <div className="mt-5 space-y-3">
+      <div className="space-y-3">
         <Alert onClose={() => setError('')}>{error}</Alert>
         <Alert kind="ok" onClose={() => setNotice('')}>{notice}</Alert>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="mt-6 grid grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
         <Stat label="Served today" value={k?.served_today} />
         <Stat label="Waiting right now" value={k?.waiting_now} />
         <Stat label="Average wait today" value={k?.avg_wait_today ? formatMinutes(k.avg_wait_today) : '–'} />
         <Stat label="No-shows today" value={k?.no_shows_today} />
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <section className="bg-ink text-white rounded-2xl p-6">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="font-bold text-lg">Daily insight</h2>
-            {insight && (
-              <span className="text-xs rounded-full bg-white/15 px-2.5 py-1">
-                {insight.source === 'ai' ? 'Written by AI' : 'Auto-generated from stats'}
-              </span>
-            )}
-          </div>
-          {insight?.day && <p className="text-sm text-white/60">For {insight.day}</p>}
-          {!insight ? (
-            <p className="mt-4 text-white/60">Analysing yesterday's queues…</p>
-          ) : (
-            <ul className="mt-4 space-y-3">
-              {insight.lines.map((line, i) => (
-                <li key={i} className="flex gap-3">
-                  <span className="mt-2 w-1.5 h-1.5 rounded-full bg-signal shrink-0" />
-                  <span className="leading-relaxed">{line}</span>
-                </li>
-              ))}
-            </ul>
+      <section className="mt-8 rounded-3xl bg-lime text-ink p-6 sm:p-8">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-extrabold text-xl wide">Daily insight</h2>
+          {insight && (
+            <span className="text-xs font-bold rounded-full bg-ink/10 px-3 py-1">
+              {insight.source === 'ai' ? 'Written by AI' : 'Auto-generated from stats'}
+            </span>
           )}
-          <button onClick={loadInsight} className="mt-5 text-sm font-semibold underline underline-offset-4 text-white/80 hover:text-white">
-            Regenerate
-          </button>
-        </section>
+        </div>
+        {insight?.day && <p className="text-sm opacity-70 mt-1">For {insight.day}</p>}
+        {!insight ? (
+          <p className="mt-4 opacity-70">Analysing yesterday's queues…</p>
+        ) : (
+          <ul className="mt-5 space-y-3 text-base sm:text-lg leading-relaxed">
+            {insight.lines.map((line, i) => (
+              <li key={i}>{line}</li>
+            ))}
+          </ul>
+        )}
+        <button
+          type="button"
+          onClick={loadInsight}
+          className="mt-5 text-sm font-bold underline underline-offset-4 opacity-70 hover:opacity-100 min-h-[48px]"
+        >
+          Regenerate
+        </button>
+      </section>
 
-        <section className="bg-white rounded-2xl border border-line p-6">
-          <h2 className="font-bold text-lg">Wait-time prediction model</h2>
-          <p className="text-sm text-muted">Gradient-boosted trees trained on past visits: people ahead, hour, weekday and service.</p>
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <section className="rounded-3xl bg-soft p-6 sm:p-8">
+          <h2 className="font-bold text-lg">Wait-time model</h2>
           {m ? (
             <>
-              <div className="mt-5 flex items-end gap-6">
-                <div>
-                  <div className="numeral text-6xl text-go">{m.improvement_pct}%</div>
-                  <div className="text-sm text-muted">more accurate than a simple average</div>
-                </div>
-              </div>
-              <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-lg bg-mist p-3">
-                  <dt className="text-muted">Model error</dt>
-                  <dd className="font-bold">± {m.mae_model_min} min</dd>
-                </div>
-                <div className="rounded-lg bg-mist p-3">
-                  <dt className="text-muted">Simple average error</dt>
-                  <dd className="font-bold">± {m.mae_naive_min} min</dd>
-                </div>
-              </dl>
-              <p className="text-xs text-muted mt-3">
-                Trained on {m.trained_on.toLocaleString()} visits, tested on a held-out 20%. Last trained {m.trained_at}.
+              <div className="numeral text-6xl sm:text-7xl mt-4">{m.improvement_pct}%</div>
+              <p className="text-sm text-muted mt-1">more accurate than a simple average</p>
+              <ErrorBars model={m.mae_model_min} naive={m.mae_naive_min} />
+              <p className="text-xs text-muted mt-4">
+                Trained on {m.trained_on.toLocaleString()} visits · last trained {m.trained_at}
               </p>
             </>
           ) : (
             <p className="mt-4 text-sm text-muted">Not enough history yet. The model trains once 200 visits are recorded.</p>
           )}
-          <Button variant="ghost" className="mt-4" onClick={retrain} busy={retraining}>
-            Retrain with latest data
+          <Button variant="primary" className="mt-5" onClick={retrain} busy={retraining}>
+            Retrain
           </Button>
+        </section>
+
+        <section className="rounded-3xl bg-soft p-6 sm:p-8">
+          <h2 className="font-bold text-lg">Last 14 days</h2>
+          <div className="h-64 sm:h-72 mt-4">
+            {overview ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={overview.daily} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                  <CartesianGrid stroke="#E3E7EF" vertical={false} strokeDasharray="4 4" />
+                  <XAxis dataKey="date" tickFormatter={(d) => d.slice(5)} tick={{ fontSize: 11, fill: '#5D6B82' }} axisLine={false} tickLine={false} />
+                  <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#5D6B82' }} axisLine={false} tickLine={false} width={32} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#5D6B82' }} axisLine={false} tickLine={false} width={32} unit="m" />
+                  <Tooltip />
+                  <Bar yAxisId="left" dataKey="served" name="Served" fill="#101828" radius={[3, 3, 0, 0]} />
+                  <Line yAxisId="right" dataKey="avg_wait" name="Avg wait" stroke="#E8196F" strokeWidth={2.5} dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full bg-white rounded-xl animate-pulse" />
+            )}
+          </div>
         </section>
       </div>
 
-      <section className="mt-6 bg-white rounded-2xl border border-line p-6">
-        <h2 className="font-bold text-lg">Last 14 days</h2>
-        <div className="h-72 mt-4">
-          {overview ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={overview.daily} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-                <CartesianGrid stroke="#d5dbe5" vertical={false} />
-                <XAxis dataKey="date" tickFormatter={(d) => d.slice(5)} tick={{ fontSize: 12, fill: '#5b6478' }} />
-                <YAxis yAxisId="left" tick={{ fontSize: 12, fill: '#5b6478' }} />
-                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12, fill: '#5b6478' }} unit="m" />
-                <Tooltip />
-                <Legend />
-                <Bar yAxisId="left" dataKey="served" name="Students served" fill="#15224a" radius={[4, 4, 0, 0]} />
-                <Line yAxisId="right" dataKey="avg_wait" name="Avg wait (min)" stroke="#e5a800" strokeWidth={3} dot={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="h-full bg-mist rounded-xl animate-pulse" />
-          )}
-        </div>
-      </section>
-
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <section className="bg-white rounded-2xl border border-line p-6 overflow-x-auto">
+        <section className="rounded-3xl bg-soft p-6 sm:p-8">
           <h2 className="font-bold text-lg">Counters today</h2>
-          <table className="mt-4 w-full text-sm">
-            <thead className="text-left text-muted">
-              <tr>
-                <th className="font-medium pb-2">Service</th>
-                <th className="font-medium pb-2 text-right">Served</th>
-                <th className="font-medium pb-2 text-right">Avg wait</th>
-                <th className="font-medium pb-2 text-right">Peak</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {overview?.services.map((s) => (
-                <tr key={s.service}>
-                  <td className="py-2.5 font-semibold">{s.service}</td>
-                  <td className="py-2.5 text-right">{s.served}</td>
-                  <td className="py-2.5 text-right">{s.avg_wait ? formatMinutes(s.avg_wait) : '–'}</td>
-                  <td className="py-2.5 text-right">{hourLabel(s.peak_hour)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ul className="mt-5 space-y-5">
+            {overview?.services.map((s, i) => {
+              const svc = services.find((x) => x.name === s.service)
+              const c = serviceColor(svc || { id: i, code: s.service?.[0] })
+              const share = totalServed > 0 ? (s.served / totalServed) * 100 : 0
+              return (
+                <li key={s.service}>
+                  <div className="flex items-center gap-3">
+                    <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: c.bg }} aria-hidden />
+                    <span className="font-bold flex-1 truncate">{s.service}</span>
+                    <span className="numeral text-xl shrink-0">{s.served}</span>
+                    <span className="text-sm text-muted shrink-0 w-16 text-right">{s.avg_wait ? formatMinutes(s.avg_wait) : '–'}</span>
+                    <span className="text-sm text-muted shrink-0 w-14 text-right">{hourLabel(s.peak_hour)}</span>
+                  </div>
+                  <div className="mt-2 h-1 rounded-full bg-white overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${share}%`, backgroundColor: c.bg }} />
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+          <p className="text-xs text-muted mt-4">Bar shows share of students served today.</p>
         </section>
 
-        <section className="bg-white rounded-2xl border border-line p-6">
+        <section className="rounded-3xl bg-soft p-6 sm:p-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-bold text-lg">Peak hours</h2>
             <label className="text-sm">
@@ -228,7 +240,7 @@ export default function Admin() {
               <select
                 value={heatSid ?? ''}
                 onChange={(e) => setHeatSid(Number(e.target.value))}
-                className="rounded-lg border border-line px-3 py-2 bg-white"
+                className="min-h-[48px] rounded-xl border-2 border-line px-4 text-base bg-white"
               >
                 {services.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -239,15 +251,15 @@ export default function Admin() {
             </label>
           </div>
           <div className="mt-4">
-            <Heatmap data={heat} />
+            <Heatmap data={heat} colors={heatColors} />
           </div>
         </section>
       </div>
 
-      <section className="mt-6 bg-white rounded-2xl border border-line p-6">
+      <section className="mt-6 rounded-3xl bg-soft p-6 sm:p-8">
         <h2 className="font-bold text-lg">Add a service</h2>
-        <p className="text-sm text-muted">New counters appear for students immediately. Keywords help the assistant route questions here.</p>
-        <form onSubmit={createService} noValidate className="mt-4 grid gap-4 sm:grid-cols-2">
+        <p className="text-sm text-muted mt-1">New counters appear for students immediately. Keywords help the assistant route questions here.</p>
+        <form onSubmit={createService} noValidate className="mt-5 grid gap-4 sm:grid-cols-2">
           <Field label="Service name" value={form.name} onChange={set('name')} error={formErrors.name} placeholder="Library Desk" />
           <Field label="Token prefix" value={form.code} onChange={set('code')} error={formErrors.code} maxLength={2} placeholder="L" />
           <Field label="Counter location" value={form.counter} onChange={set('counter')} placeholder="Library, Ground Floor" />

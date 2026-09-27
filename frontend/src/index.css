@@ -1,34 +1,28 @@
 @import "tailwindcss";
 
-/* Design tokens: transit-signage palette. Navy ink, signal yellow for
-   "it's happening now" moments, cool mist background. */
+/* Metro-lines palette: white canvas, saturated service colors, lime for "your turn". */
 @theme {
-  --color-ink: #15224a;
-  --color-ink-soft: #2c3b6e;
-  --color-signal: #ffc629;
-  --color-signal-deep: #e5a800;
-  --color-mist: #edf0f4;
-  --color-line: #d5dbe5;
-  --color-muted: #5b6478;
-  --color-go: #1f8a5b;
-  --color-stop: #c93c3c;
-  --font-sans: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --color-canvas: #ffffff;
+  --color-soft: #f4f5f9;
+  --color-ink: #101828;
+  --color-muted: #5d6b82;
+  --color-line: #e3e7ef;
+  --color-lime: #c6f432;
+  --color-danger: #e5372b;
+  --font-sans: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
 }
 
-html { background: var(--color-mist); color: var(--color-ink); }
+html { background: var(--color-canvas); color: var(--color-ink); }
 body { font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
 
-/* Condensed display numerals: the signature element */
 .numeral {
-  font-stretch: 68%;
-  font-weight: 850;
+  font-variation-settings: "wdth" 75, "wght" 800;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
   line-height: 0.9;
 }
-.wide { font-stretch: 112%; }
+.wide { font-variation-settings: "wdth" 100; }
 
-/* Paper ticket: a dashed tear line with punched notches at each end */
 .ticket-tear {
   position: relative;
   border-top: 2px dashed var(--color-line);
@@ -40,12 +34,12 @@ body { font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
   width: 22px;
   height: 22px;
   border-radius: 9999px;
-  background: var(--color-mist);
+  background: var(--color-canvas);
 }
 .ticket-tear::before { left: -11px; }
 .ticket-tear::after { right: -11px; }
 
-:focus-visible { outline: 3px solid var(--color-signal-deep); outline-offset: 2px; border-radius: 6px; }
+:focus-visible { outline: 3px solid var(--color-ink); outline-offset: 2px; border-radius: 6px; }
 
 @keyframes flip-in {
   0% { transform: rotateX(-90deg); opacity: 0; }
@@ -55,11 +49,17 @@ body { font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
 .flip-in { animation: flip-in 600ms cubic-bezier(.2,.7,.3,1.2); transform-origin: top; }
 
 @keyframes pulse-ring {
-  0% { box-shadow: 0 0 0 0 rgba(255, 198, 41, 0.7); }
-  100% { box-shadow: 0 0 0 22px rgba(255, 198, 41, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(198, 244, 50, 0.7); }
+  100% { box-shadow: 0 0 0 22px rgba(198, 244, 50, 0); }
 }
 .pulse-ring { animation: pulse-ring 1.4s ease-out infinite; }
 
+.line-shift { animation: line-shift 500ms ease-out; }
+@keyframes line-shift {
+  0% { transform: translateX(8px); opacity: 0.6; }
+  100% { transform: translateX(0); opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .flip-in, .pulse-ring { animation: none; }
+  .flip-in, .pulse-ring, .line-shift { animation: none; }
 }

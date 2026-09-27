@@ -4,10 +4,37 @@ import { homeFor, useAuth } from '../lib/auth'
 import { Alert, Button, Field, Logo } from '../components/ui'
 
 const DEMO = [
-  { role: 'Student', email: 'student@campus.edu', password: 'student123' },
-  { role: 'Staff', email: 'staff@campus.edu', password: 'staff123' },
-  { role: 'Admin', email: 'admin@campus.edu', password: 'admin123' },
+  { role: 'Student', email: 'student@campus.edu', password: 'student123', bg: '#2B59FF', text: '#FFFFFF' },
+  { role: 'Staff', email: 'staff@campus.edu', password: 'staff123', bg: '#E8196F', text: '#FFFFFF' },
+  { role: 'Admin', email: 'admin@campus.edu', password: 'admin123', bg: '#0A8F5B', text: '#FFFFFF' },
 ]
+
+function PreviewLine() {
+  return (
+    <div className="flex items-center gap-1.5 mt-6 mb-4" aria-hidden>
+      {[0, 1, 2].map((i) => (
+        <span key={i} className="w-2.5 h-2.5 rounded-full bg-white/35 shrink-0" />
+      ))}
+      <span className="flex flex-col items-center mx-1 shrink-0">
+        <span className="w-5 h-5 rounded-full bg-white ring-2 ring-white/50" />
+        <span className="text-[10px] font-bold mt-0.5">You</span>
+      </span>
+      <span className="flex-1 min-w-[20px] border-t-2 border-dashed border-white/30 mx-1" />
+      <span className="shrink-0 w-6 h-6 rounded bg-white/20" />
+    </div>
+  )
+}
+
+function TicketPreview() {
+  return (
+    <div className="rounded-3xl bg-white/10 p-6 sm:p-8 max-w-md">
+      <p className="text-sm opacity-70">Certificates · Block A, Ground Floor</p>
+      <div className="numeral text-[5rem] sm:text-[6rem] leading-none mt-2">C-042</div>
+      <PreviewLine />
+      <p className="text-xl font-bold">3 people ahead of you</p>
+    </div>
+  )
+}
 
 export default function Login() {
   const { user, login, register } = useAuth()
@@ -60,57 +87,62 @@ export default function Login() {
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-[1.1fr_1fr]">
-      <section className="bg-ink text-white px-6 sm:px-12 py-10 flex flex-col justify-between gap-10">
-        <Logo light />
-        <div>
-          <p className="text-white/60 text-lg">Now serving</p>
-          <div className="numeral text-signal text-[8rem] sm:text-[11rem] -ml-1">C-042</div>
-          <h1 className="text-3xl sm:text-4xl font-extrabold wide max-w-lg mt-4 leading-tight">
+    <div className="min-h-screen bg-canvas">
+      <div className="h-2 bg-[#2B59FF] lg:hidden" aria-hidden />
+
+      <div className="min-h-screen grid lg:grid-cols-2">
+        <section className="hidden lg:flex bg-[#2B59FF] text-white px-10 xl:px-14 py-12 flex-col justify-center gap-10">
+          <TicketPreview />
+          <p className="text-2xl sm:text-3xl font-extrabold wide max-w-md leading-tight">
             Join the line from your phone. Walk in when it's your turn.
-          </h1>
-          <p className="text-white/70 mt-4 max-w-md">
-            Live positions, predicted wait times, and an assistant that tells you which counter to visit and what to bring.
           </p>
-        </div>
-        <p className="text-white/40 text-sm">Certificates, ID cards, fees, exam cell and IT help, all in one queue system.</p>
-      </section>
+        </section>
 
-      <section className="px-6 sm:px-12 py-10 flex items-center">
-        <div className="w-full max-w-sm mx-auto">
-          <h2 className="text-2xl font-extrabold">{mode === 'login' ? 'Log in' : 'Create a student account'}</h2>
-          <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
-            {mode === 'register' && <Field label="Full name" value={form.name} onChange={set('name')} error={errors.name} autoComplete="name" />}
-            <Field label="College email" type="email" value={form.email} onChange={set('email')} error={errors.email} autoComplete="email" />
-            <Field label="Password" type="password" value={form.password} onChange={set('password')} error={errors.password} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
-            <Alert onClose={() => setError('')}>{error}</Alert>
-            <Button type="submit" variant="primary" className="w-full" busy={busy}>
-              {mode === 'login' ? 'Log in' : 'Create account'}
-            </Button>
-          </form>
-          <button
-            onClick={() => {
-              setMode(mode === 'login' ? 'register' : 'login')
-              setErrors({})
-              setError('')
-            }}
-            className="mt-4 text-sm font-semibold underline underline-offset-4"
-          >
-            {mode === 'login' ? 'New here? Create a student account' : 'Already have an account? Log in'}
-          </button>
+        <section className="px-6 sm:px-12 py-10 flex items-center min-h-[calc(100vh-0.5rem)] lg:min-h-screen">
+          <div className="w-full max-w-sm mx-auto">
+            <Logo />
+            <h2 className="text-2xl font-extrabold wide mt-8">{mode === 'login' ? 'Log in' : 'Create a student account'}</h2>
+            <form onSubmit={submit} className="mt-6 space-y-4" noValidate>
+              {mode === 'register' && <Field label="Full name" value={form.name} onChange={set('name')} error={errors.name} autoComplete="name" />}
+              <Field label="College email" type="email" value={form.email} onChange={set('email')} error={errors.email} autoComplete="email" />
+              <Field label="Password" type="password" value={form.password} onChange={set('password')} error={errors.password} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
+              <Alert onClose={() => setError('')}>{error}</Alert>
+              <Button type="submit" variant="primary" className="w-full" busy={busy}>
+                {mode === 'login' ? 'Log in' : 'Create account'}
+              </Button>
+            </form>
+            <button
+              type="button"
+              onClick={() => {
+                setMode(mode === 'login' ? 'register' : 'login')
+                setErrors({})
+                setError('')
+              }}
+              className="mt-4 text-sm font-semibold underline underline-offset-4 min-h-[48px]"
+            >
+              {mode === 'login' ? 'New here? Create a student account' : 'Already have an account? Log in'}
+            </button>
 
-          <div className="mt-10 pt-6 border-t border-line">
-            <p className="text-sm text-muted mb-3">Demo accounts</p>
-            <div className="grid grid-cols-3 gap-2">
-              {DEMO.map((d) => (
-                <Button key={d.role} variant="ghost" onClick={() => demoLogin(d)} disabled={busy} className="text-sm px-2">
-                  {d.role}
-                </Button>
-              ))}
+            <div className="mt-10 pt-6 border-t-2 border-line">
+              <p className="text-sm text-muted mb-3">Demo accounts</p>
+              <div className="flex flex-wrap gap-2">
+                {DEMO.map((d) => (
+                  <button
+                    key={d.role}
+                    type="button"
+                    onClick={() => demoLogin(d)}
+                    disabled={busy}
+                    className="rounded-full px-5 min-h-[48px] text-sm font-bold active:scale-[0.98] disabled:opacity-50"
+                    style={{ backgroundColor: d.bg, color: d.text }}
+                  >
+                    {d.role}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </div>
   )
 }
