@@ -1,0 +1,6 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic[email]>=2.6
+PyJWT>=2.8
+scikit-learn>=1.4
+numpy>=1.26
