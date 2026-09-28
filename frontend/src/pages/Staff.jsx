@@ -144,9 +144,18 @@ export default function Staff() {
               <div className="grid gap-6 lg:grid-cols-[1fr_280px] lg:items-center">
                 <div>
                   <p className="text-sm opacity-80 uppercase tracking-wide font-semibold">Now serving</p>
-                  <div key={data.current?.label} className="flip-in numeral text-[5rem] sm:text-[7rem] lg:text-[8rem] text-lime leading-none mt-1">
-                    {data.current?.label || '–'}
-                  </div>
+                  {data.current?.label ? (
+                    <div key={data.current.label} className="flip-in numeral text-[5rem] sm:text-[7rem] lg:text-[8rem] text-lime leading-none mt-1">
+                      {data.current.label}
+                    </div>
+                  ) : (
+                    <div className="mt-2">
+                      <p className="text-[2rem] font-bold opacity-80">Nobody at the counter</p>
+                      {data.waiting.length > 0 && (
+                        <p className="text-base font-semibold opacity-80 mt-1">Press Call next to start</p>
+                      )}
+                    </div>
+                  )}
                   <p className="text-sm opacity-70 mt-2">{s.counter}</p>
                 </div>
 
@@ -158,7 +167,7 @@ export default function Staff() {
                     title="Shortcut: N"
                     className="w-full min-h-[96px] rounded-2xl bg-white text-ink text-2xl font-extrabold active:scale-[0.98] disabled:opacity-50"
                   >
-                    {busy === 'next' ? 'Working…' : 'Call next'}
+                    {busy === 'next' ? 'Working…' : data.waiting.length === 0 ? 'No one waiting' : 'Call next'}
                   </button>
                   <p className="text-center text-xs opacity-60">Press N</p>
                 </div>

@@ -120,12 +120,21 @@ export default function Display() {
             ) : (
               <>
                 <p className="text-2xl sm:text-3xl opacity-70 font-semibold">Now serving</p>
-                <div
-                  key={data.now_serving}
-                  className="flip-in numeral text-lime leading-none mt-2 text-[min(28vw,22rem)] sm:text-[min(22vw,24rem)] lg:text-[min(18vw,28rem)]"
-                >
-                  {data.now_serving || '–'}
-                </div>
+                {data.now_serving ? (
+                  <div
+                    key={data.now_serving}
+                    className="flip-in numeral text-lime leading-none mt-2 text-[min(28vw,22rem)] sm:text-[min(22vw,24rem)] lg:text-[min(18vw,28rem)]"
+                  >
+                    {data.now_serving}
+                  </div>
+                ) : (
+                  <div className="mt-2">
+                    <p className="text-[4rem] font-bold leading-tight">Ready for the next student</p>
+                    {data.waiting === 0 && (
+                      <p className="text-xl sm:text-2xl font-semibold opacity-80 mt-4">No one in line. Scan the QR to join</p>
+                    )}
+                  </div>
+                )}
                 <p className="text-lg sm:text-xl opacity-70 mt-4">{data.counter}</p>
               </>
             )}

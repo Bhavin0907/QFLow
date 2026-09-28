@@ -4,7 +4,11 @@ import { useAuth } from '../lib/auth'
 export function Logo({ light = false }) {
   return (
     <span className="flex items-center gap-1.5 font-extrabold wide text-xl" aria-label="Qflow">
-      <span className="grid place-items-center w-9 h-9 rounded-xl bg-ink text-white numeral text-2xl" aria-hidden>
+      <span
+        className="grid place-items-center w-9 h-9 rounded-xl bg-ink text-white text-2xl"
+        style={{ fontFamily: '"Arial Black", "Helvetica Neue", Arial, sans-serif', fontWeight: 900 }}
+        aria-hidden
+      >
         Q
       </span>
       <span className={light ? 'text-white' : 'text-ink'} aria-hidden>

@@ -188,11 +188,11 @@ export default function Admin() {
           <div className="h-64 sm:h-72 mt-4">
             {overview ? (
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={overview.daily} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <ComposedChart data={overview.daily} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="#E3E7EF" vertical={false} strokeDasharray="4 4" />
                   <XAxis dataKey="date" tickFormatter={(d) => d.slice(5)} tick={{ fontSize: 11, fill: '#5D6B82' }} axisLine={false} tickLine={false} />
-                  <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#5D6B82' }} axisLine={false} tickLine={false} width={32} />
-                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#5D6B82' }} axisLine={false} tickLine={false} width={32} unit="m" />
+                  <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#5D6B82' }} axisLine={false} tickLine={false} width={40} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#5D6B82' }} axisLine={false} tickLine={false} width={40} unit="m" />
                   <Tooltip />
                   <Bar yAxisId="left" dataKey="served" name="Served" fill="#101828" radius={[3, 3, 0, 0]} />
                   <Line yAxisId="right" dataKey="avg_wait" name="Avg wait" stroke="#E8196F" strokeWidth={2.5} dot={false} />
