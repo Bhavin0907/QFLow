@@ -1,4 +1,5 @@
 const PALETTE = {
+  A: { bg: '#1E4D8C', text: '#FFFFFF', soft: '#E3EEF8' },
   C: { bg: '#2B59FF', text: '#FFFFFF', soft: '#E8EDFF' },
   I: { bg: '#E8196F', text: '#FFFFFF', soft: '#FDE7F0' },
   F: { bg: '#0A8F5B', text: '#FFFFFF', soft: '#E3F6EE' },

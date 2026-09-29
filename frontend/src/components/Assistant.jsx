@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { serviceColor } from '../lib/colors'
 import { Button, formatMinutes } from './ui'
+import DocumentChecklist from './DocumentChecklist'
 
 const SUGGESTIONS = ['I lost my ID card', 'I need a bonafide certificate', 'My college Wi-Fi login stopped working']
 
@@ -9,6 +10,11 @@ export default function Assistant({ onJoin, joining }) {
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState(null)
+  const [docsConfirmed, setDocsConfirmed] = useState(false)
+
+  useEffect(() => {
+    setDocsConfirmed(false)
+  }, [result?.match?.service_id])
 
   const send = async (text) => {
     const message = text.trim()
@@ -81,13 +87,12 @@ export default function Assistant({ onJoin, joining }) {
               <div className="rounded-3xl p-5 sm:p-6" style={{ backgroundColor: c.bg, color: c.text }}>
                 <h3 className="text-xl font-extrabold wide">{result.match.service_name}</h3>
                 <p className="text-sm opacity-80 mt-0.5">{result.match.counter}</p>
-                {result.match.documents?.length > 0 && (
-                  <ul className="mt-4 space-y-1 text-sm">
-                    {result.match.documents.map((d) => (
-                      <li key={d}>· {d}</li>
-                    ))}
-                  </ul>
-                )}
+                <DocumentChecklist
+                  documents={result.match.documents}
+                  confirmed={docsConfirmed}
+                  onConfirmedChange={setDocsConfirmed}
+                  tone="dark"
+                />
                 <p className="mt-4 numeral text-3xl">
                   {result.match.is_paused
                     ? 'Paused right now'
@@ -98,8 +103,9 @@ export default function Assistant({ onJoin, joining }) {
                   <Button
                     variant="lime"
                     className="w-full mt-5"
-                    onClick={() => onJoin(result.match.service_id)}
+                    onClick={() => onJoin(result.match.service_id, docsConfirmed)}
                     busy={joining === result.match.service_id}
+                    disabled={result.match.documents?.length > 0 && !docsConfirmed}
                   >
                     Get token
                   </Button>

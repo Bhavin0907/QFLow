@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { serviceColor } from '../lib/colors'
-import { formatMinutes } from './ui'
+import { formatMinutes, Button } from './ui'
+import GraceTimer from './GraceTimer'
 
 function CounterIcon({ className = '' }) {
   return (
@@ -34,10 +35,10 @@ function LineVisual({ ahead, tone }) {
   )
 }
 
-export default function Ticket({ token, onCancel, cancelling }) {
+export default function Ticket({ token, onCancel, cancelling, onRespond, responding }) {
   const [checked, setChecked] = useState({})
   const called = token.status === 'called'
-  const almost = token.status === 'waiting' && token.position <= 3
+  const almost = token.status === 'waiting' && token.position <= 2
   const paused = token.is_paused
   const color = serviceColor({ id: token.service_id, code: token.label?.split('-')[0] })
   const ahead = token.ahead ?? Math.max(0, (token.position ?? 1) - 1)
@@ -68,6 +69,23 @@ export default function Ticket({ token, onCancel, cancelling }) {
             {token.label}
           </div>
           <p className="text-xl sm:text-2xl font-bold mt-2">Go to {token.counter}</p>
+          <div className="mt-5">
+            <GraceTimer
+              secondsLeft={token.grace_seconds_left}
+              responded={token.responded}
+              variant="student"
+            />
+          </div>
+          {!token.responded && (
+            <Button
+              variant="primary"
+              className="w-full mt-4 min-h-[56px] text-lg"
+              busy={responding}
+              onClick={() => onRespond?.(token)}
+            >
+              I'm here at the counter
+            </Button>
+          )}
         </>
       ) : paused ? (
         <>

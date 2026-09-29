@@ -90,3 +90,8 @@ def predict_wait(service_id: int, ahead: int, when: datetime | None = None) -> f
 def metrics() -> dict | None:
     with _lock:
         return _state["metrics"]
+
+
+def avg_service_times() -> dict[int, float]:
+    with _lock:
+        return dict(_state["avg_service"])

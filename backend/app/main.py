@@ -2,6 +2,7 @@
 
 Run (from the backend folder):  uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 """
+import asyncio
 import os
 import socket
 from contextlib import asynccontextmanager
@@ -16,6 +17,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from . import analytics, assistant, eta_model, llm
 from . import queue_service as q
+from . import slot_service as slots
 from .db import connect, get_conn, init_db
 from .security import create_access_token, decode_access_token, hash_password, verify_password
 
@@ -45,10 +47,55 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+_rush_active: dict[int, bool] = {}
 
 
 async def notify(service_id: int, event: str, **extra):
     await manager.broadcast({"type": "queue_update", "service_id": service_id, "event": event, **extra})
+
+
+async def sync_rush_alerts(conn, service_id: int | None = None):
+    """Broadcast rush_alert / rush_cleared when forecast crosses the threshold."""
+    services = [q.get_service(conn, service_id)] if service_id else q.list_services(conn)
+    for service in services:
+        sid = service["id"]
+        forecast = analytics.rush_forecast(conn, sid)
+        prev = _rush_active.get(sid, False)
+        _rush_active[sid] = forecast["active"]
+        if forecast["active"] and not prev:
+            await notify(
+                sid, "rush_alert",
+                message=forecast["message"],
+                threshold_min=forecast["threshold_min"],
+                breach_clock=forecast["breach_clock"],
+                peak_wait_min=forecast["peak_wait_min"],
+            )
+        elif not forecast["active"] and prev:
+            await notify(sid, "rush_cleared", service_name=forecast["service_name"])
+
+
+def run_maintenance(conn) -> list[dict]:
+    """Process grace timeouts and release unclaimed slot bookings."""
+    events = q.process_grace_timeouts(conn)
+    for rel in slots.release_unclaimed_slots(conn):
+        events.append({"service_id": rel["service_id"], "event": "slot_released", **rel})
+    return events
+
+
+async def broadcast_maintenance(conn):
+    for ev in run_maintenance(conn):
+        await notify(ev["service_id"], ev["event"], **{k: v for k, v in ev.items() if k not in ("service_id", "event")})
+    await sync_rush_alerts(conn)
+
+
+async def _maintenance_loop():
+    while True:
+        await asyncio.sleep(15)
+        try:
+            with get_conn() as conn:
+                await broadcast_maintenance(conn)
+        except Exception:
+            pass
 
 
 # ---------- app setup ----------
@@ -61,7 +108,18 @@ async def lifespan(app: FastAPI):
             from .seed import seed
             seed(reset=False)
         eta_model.train(conn)
-    yield
+        for s in q.list_services(conn):
+            _rush_active[s["id"]] = analytics.rush_forecast(conn, s["id"])["active"]
+    task = asyncio.create_task(_maintenance_loop())
+    asyncio.create_task(llm.warmup())
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="Qflow API", version="1.0", lifespan=lifespan)
@@ -151,8 +209,42 @@ class PauseIn(BaseModel):
     message: str = Field(default="", max_length=120)
 
 
+class TokenContextIn(BaseModel):
+    label: str
+    service_name: str
+    counter: str
+    status: str
+    position: int | None = None
+    eta_min: float | None = None
+    eta_clock: str | None = None
+    documents: list[str] = Field(default_factory=list)
+
+
 class AskIn(BaseModel):
     message: str = Field(min_length=2, max_length=300)
+    token_context: list[TokenContextIn] | None = None
+
+
+class BookIn(BaseModel):
+    slot_start: str = Field(min_length=19, max_length=19, pattern=r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
+    documents_confirmed: bool = False
+
+
+class JoinIn(BaseModel):
+    documents_confirmed: bool = False
+
+
+class ServiceUpdateIn(BaseModel):
+    documents: list[str] = Field(min_length=0, max_length=10)
+    keywords: list[str] | None = Field(default=None, max_length=30)
+
+
+def _require_documents_confirmed(service: dict, confirmed: bool):
+    if service.get("documents") and not confirmed:
+        raise HTTPException(
+            400,
+            "Please confirm you have all required documents before continuing",
+        )
 
 
 # ---------- helpers ----------
@@ -198,6 +290,41 @@ def _token_live(conn, token: dict) -> dict:
         "pause_message": service["pause_message"],
         "created_at": token["created_at"],
         "called_at": token["called_at"],
+        "is_booked": bool(token.get("is_booked")),
+        "slot_start": token.get("slot_start"),
+        "grace_expires_at": token.get("grace_expires_at"),
+        "grace_seconds_left": q.grace_seconds_left(token),
+        "responded": bool(token.get("responded_at")),
+    }
+
+
+def _called_out(conn, token: dict | None) -> dict | None:
+    if not token:
+        return None
+    service = q.get_service(conn, token["service_id"])
+    return {
+        "id": token["id"],
+        "label": token["label"],
+        "called_at": token["called_at"],
+        "grace_expires_at": token.get("grace_expires_at"),
+        "grace_seconds_left": q.grace_seconds_left(token),
+        "grace_seconds": int(service.get("grace_seconds") or 20),
+        "responded": bool(token.get("responded_at")),
+    }
+
+
+def _appointment_out(appt: dict) -> dict:
+    slot_dt = datetime.strptime(appt["slot_start"], "%Y-%m-%d %H:%M:%S")
+    return {
+        "id": appt["id"],
+        "service_id": appt["service_id"],
+        "service_name": appt["service_name"],
+        "counter": appt["counter"],
+        "slot_start": appt["slot_start"],
+        "slot_time": slot_dt.strftime("%I:%M %p").lstrip("0"),
+        "slot_date": appt["slot_date"],
+        "status": appt["status"],
+        "token_id": appt.get("token_id"),
     }
 
 
@@ -275,24 +402,94 @@ async def create_service(body: ServiceIn, _=Depends(admin_only), conn=Depends(ge
     return s
 
 
+@app.patch("/api/services/{service_id}")
+async def update_service(service_id: int, body: ServiceUpdateIn, _=Depends(admin_only), conn=Depends(get_db)):
+    docs = [d.strip() for d in body.documents if d.strip()]
+    kws = None
+    if body.keywords is not None:
+        kws = [k.strip().lower() for k in body.keywords if k.strip()]
+    s = q.update_service(conn, service_id, documents=docs, keywords=kws)
+    await notify(service_id, "service_updated")
+    return s
+
+
 # ---------- student tokens ----------
 
 @app.post("/api/services/{service_id}/join", status_code=201)
-async def join(service_id: int, user=Depends(current_user), conn=Depends(get_db)):
-    token = q.join_queue(conn, service_id, user["id"])
+async def join(service_id: int, body: JoinIn = JoinIn(), user=Depends(current_user), conn=Depends(get_db)):
+    service = q.get_service(conn, service_id)
+    _require_documents_confirmed(service, body.documents_confirmed)
+    token = q.join_queue(conn, service_id, user["id"], is_booked=False)
     await notify(service_id, "joined")
+    await sync_rush_alerts(conn, service_id)
     return _token_live(conn, token)
 
 
+@app.get("/api/services/{service_id}/slots")
+def service_slots(service_id: int, date: str | None = None, conn=Depends(get_db)):
+    q.get_service(conn, service_id)
+    if date:
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, "date must be YYYY-MM-DD")
+    return slots.list_slots(conn, service_id, date)
+
+
+@app.post("/api/services/{service_id}/book", status_code=201)
+async def book(service_id: int, body: BookIn, user=Depends(current_user), conn=Depends(get_db)):
+    service = q.get_service(conn, service_id)
+    _require_documents_confirmed(service, body.documents_confirmed)
+    appt = slots.book_slot(conn, service_id, user["id"], body.slot_start)
+    await notify(service_id, "booked")
+    return _appointment_out(appt)
+
+
+@app.get("/api/appointments/me")
+def my_appointments(user=Depends(current_user), conn=Depends(get_db)):
+    return [_appointment_out(a) for a in slots.appointments_for_user(conn, user["id"])]
+
+
+@app.post("/api/appointments/{appointment_id}/check-in", status_code=201)
+async def check_in(appointment_id: int, user=Depends(current_user), conn=Depends(get_db)):
+    token = slots.check_in(conn, appointment_id, user["id"])
+    await notify(token["service_id"], "checked_in")
+    return _token_live(conn, token)
+
+
+@app.post("/api/appointments/{appointment_id}/cancel")
+async def cancel_booking(appointment_id: int, user=Depends(current_user), conn=Depends(get_db)):
+    appt = slots.cancel_booking(conn, appointment_id, user["id"])
+    await notify(appt["service_id"], "booking_cancelled")
+    return _appointment_out(appt)
+
+
 @app.get("/api/tokens/me")
-def my_tokens(user=Depends(current_user), conn=Depends(get_db)):
+async def my_tokens(user=Depends(current_user), conn=Depends(get_db)):
+    await broadcast_maintenance(conn)
     return {
         "active": [_token_live(conn, t) for t in q.active_tokens_for_user(conn, user["id"])],
+        "bookings": [_appointment_out(a) for a in slots.appointments_for_user(conn, user["id"])],
+        "requeue_eligible": q.requeue_eligible_for_user(conn, user["id"]),
         "history": [
             {"id": t["id"], "label": t["label"], "status": t["status"], "service_name": t["service_name"], "created_at": t["created_at"]}
             for t in q.history_for_user(conn, user["id"])
         ],
     }
+
+
+@app.post("/api/tokens/{token_id}/respond")
+async def respond(token_id: int, user=Depends(current_user), conn=Depends(get_db)):
+    token = q.respond_to_call(conn, token_id, user["id"])
+    await notify(token["service_id"], "responded", label=token["label"], token_id=token["id"])
+    return _token_live(conn, token)
+
+
+@app.post("/api/tokens/{token_id}/requeue", status_code=201)
+async def requeue(token_id: int, user=Depends(current_user), conn=Depends(get_db)):
+    token = q.requeue_after_noshow(conn, token_id, user["id"])
+    await notify(token["service_id"], "requeued", label=token["label"], token_id=token["id"])
+    return _token_live(conn, token)
 
 
 @app.post("/api/tokens/{token_id}/cancel")
@@ -305,21 +502,31 @@ async def cancel(token_id: int, user=Depends(current_user), conn=Depends(get_db)
 # ---------- staff controls ----------
 
 @app.get("/api/staff/services/{service_id}")
-def staff_view(service_id: int, _=Depends(staff_only), conn=Depends(get_db)):
+async def staff_view(service_id: int, _=Depends(staff_only), conn=Depends(get_db)):
+    await broadcast_maintenance(conn)
     s = q.get_service(conn, service_id)
     called = q.current_called(conn, service_id)
     return {
         "service": {**s, "keywords": None},
-        "current": {"id": called["id"], "label": called["label"], "called_at": called["called_at"]} if called else None,
+        "current": _called_out(conn, called),
         "waiting": q.waiting_list(conn, service_id),
         "stats": q.today_stats(conn, service_id),
+        "rush": analytics.rush_forecast(conn, service_id),
+        "rush_alerts": analytics.active_rush_alerts(conn),
     }
+
+
+@app.get("/api/staff/rush-alerts")
+async def staff_rush_alerts(_=Depends(staff_only), conn=Depends(get_db)):
+    await broadcast_maintenance(conn)
+    return analytics.active_rush_alerts(conn)
 
 
 @app.post("/api/staff/services/{service_id}/call-next")
 async def call_next(service_id: int, _=Depends(staff_only), conn=Depends(get_db)):
     token = q.call_next(conn, service_id)
     await notify(service_id, "called", label=token["label"], token_id=token["id"], counter=token["counter"])
+    await sync_rush_alerts(conn, service_id)
     return {"id": token["id"], "label": token["label"]}
 
 
@@ -332,9 +539,15 @@ async def serve(service_id: int, _=Depends(staff_only), conn=Depends(get_db)):
 
 @app.post("/api/staff/services/{service_id}/skip")
 async def skip(service_id: int, _=Depends(staff_only), conn=Depends(get_db)):
-    token = q.skip_current(conn, service_id)
-    await notify(service_id, "skipped", label=token["label"])
-    return {"id": token["id"], "label": token["label"], "status": token["status"]}
+    skipped, nxt = q.skip_and_advance(conn, service_id)
+    await notify(service_id, "skipped", label=skipped["label"], token_id=skipped["id"])
+    if nxt:
+        await notify(service_id, "called", label=nxt["label"], token_id=nxt["id"], counter=nxt["counter"])
+    await sync_rush_alerts(conn, service_id)
+    return {
+        "skipped": {"id": skipped["id"], "label": skipped["label"], "status": skipped["status"]},
+        "next": {"id": nxt["id"], "label": nxt["label"]} if nxt else None,
+    }
 
 
 @app.post("/api/staff/services/{service_id}/pause")
@@ -383,12 +596,18 @@ def display(service_id: int, conn=Depends(get_db)):
 # ---------- AI ----------
 
 @app.post("/api/assistant")
-def ask(body: AskIn, conn=Depends(get_db)):
-    return assistant.answer(conn, body.message.strip())
+async def ask(body: AskIn, conn=Depends(get_db)):
+    ctx = [t.model_dump() for t in body.token_context] if body.token_context else None
+    return await assistant.answer(conn, body.message.strip(), token_context=ctx)
+
+
+@app.get("/api/ai/status")
+async def ai_status():
+    return await llm.status()
 
 
 @app.get("/api/admin/overview")
-def admin_overview(_=Depends(admin_only), conn=Depends(get_db)):
+async def admin_overview(_=Depends(admin_only), conn=Depends(get_db)):
     today = q.today_str()
     breakdown = analytics.service_breakdown(conn, today)
     total_waiting = sum(q.waiting_count(conn, s["id"]) for s in q.list_services(conn))
@@ -404,13 +623,15 @@ def admin_overview(_=Depends(admin_only), conn=Depends(get_db)):
         "daily": analytics.daily_series(conn),
         "services": breakdown,
         "model": eta_model.metrics(),
-        "ai_enabled": llm.is_enabled(),
+        "eta_accuracy": analytics.eta_accuracy(conn, today),
+        "rush_alerts": analytics.active_rush_alerts(conn),
+        "ai": await llm.status(),
     }
 
 
 @app.get("/api/admin/insight")
-def admin_insight(_=Depends(admin_only), conn=Depends(get_db)):
-    return analytics.admin_insight(conn)
+async def admin_insight(refresh: bool = False, _=Depends(admin_only), conn=Depends(get_db)):
+    return await analytics.admin_insight(conn, refresh=refresh)
 
 
 @app.post("/api/admin/retrain")
@@ -421,9 +642,21 @@ def retrain(_=Depends(admin_only), conn=Depends(get_db)):
     return m
 
 
+@app.post("/api/admin/reset-demo")
+async def reset_demo(_=Depends(admin_only), conn=Depends(get_db)):
+    from .seed import clear_today_live, seed_live_demo
+
+    clear_today_live(conn)
+    summary = seed_live_demo(conn)
+    for s in q.list_services(conn):
+        await notify(s["id"], "demo_reset")
+    await sync_rush_alerts(conn)
+    return summary
+
+
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "ai_enabled": llm.is_enabled(), "model_ready": eta_model.metrics() is not None}
+    return {"status": "ok", "model_ready": eta_model.metrics() is not None}
 
 
 def _detect_lan_ip() -> str | None:

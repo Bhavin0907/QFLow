@@ -5,6 +5,8 @@ import { useAuth } from '../lib/auth'
 import { serviceColor } from '../lib/colors'
 import { askNotificationPermission } from '../lib/live'
 import { Button, formatMinutes } from '../components/ui'
+import DocumentChecklist from '../components/DocumentChecklist'
+import FloatingAssistant from '../components/FloatingAssistant'
 
 export default function Join() {
   const { serviceId } = useParams()
@@ -14,6 +16,7 @@ export default function Join() {
   const [name, setName] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [docsConfirmed, setDocsConfirmed] = useState(false)
 
   useEffect(() => {
     api(`/api/services/${serviceId}`).then(setService).catch((e) => setError(e.message))
@@ -25,7 +28,10 @@ export default function Join() {
     setBusy(true)
     try {
       if (!user) await guest(name.trim())
-      await api(`/api/services/${serviceId}/join`, { method: 'POST' })
+      await api(`/api/services/${serviceId}/join`, {
+        method: 'POST',
+        body: { documents_confirmed: docsConfirmed },
+      })
       askNotificationPermission()
       navigate('/student')
     } catch (e) {
@@ -38,6 +44,8 @@ export default function Join() {
 
   const wrongRole = user && user.role !== 'student'
   const c = service ? serviceColor(service) : null
+  const docList = service?.documents || []
+  const canJoin = !docList.length || docsConfirmed
 
   return (
     <div
@@ -82,6 +90,12 @@ export default function Join() {
                   </label>
                 )}
                 {user && <p className="text-base opacity-90">Joining as {user.name}</p>}
+                <DocumentChecklist
+                  documents={docList}
+                  confirmed={docsConfirmed}
+                  onConfirmedChange={setDocsConfirmed}
+                  tone="dark"
+                />
                 {error && (
                   <p className="rounded-2xl bg-white text-danger px-4 py-3 text-sm font-semibold">{error}</p>
                 )}
@@ -90,6 +104,7 @@ export default function Join() {
                   className="w-full text-xl min-h-[60px]"
                   onClick={joinNow}
                   busy={busy}
+                  disabled={!canJoin}
                 >
                   Get my token
                 </Button>
@@ -100,6 +115,7 @@ export default function Join() {
 
         {error && !service && <p className="text-lime font-semibold">{error}</p>}
       </div>
+      <FloatingAssistant />
     </div>
   )
 }

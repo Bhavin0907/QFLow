@@ -5,6 +5,8 @@ import { serviceColor } from '../lib/colors'
 import { useLive } from '../lib/live'
 import { isLocalhost, usePublicOrigin } from '../lib/network'
 import { Alert, Button, Shell, Stat, formatMinutes } from '../components/ui'
+import GraceTimer from '../components/GraceTimer'
+import RushAlerts from '../components/RushAlerts'
 
 const PAUSE_CHIPS = ['Lunch break, back at 2:00 PM', 'Back in 10 minutes', 'Closed for today']
 
@@ -50,8 +52,19 @@ export default function Staff() {
     load()
   }, [sid, load])
 
+  useEffect(() => {
+    if (!data?.current?.grace_seconds_left || data.current.responded) return
+    const id = setInterval(load, 1000)
+    return () => clearInterval(id)
+  }, [data?.current?.grace_seconds_left, data?.current?.responded, load])
+
   const live = useLive((msg) => {
-    if (msg.type === 'reconnected' || msg.service_id === sidRef.current) {
+    if (
+      msg.type === 'reconnected' ||
+      msg.event === 'rush_alert' ||
+      msg.event === 'rush_cleared' ||
+      msg.service_id === sidRef.current
+    ) {
       clearTimeout(debounce.current)
       debounce.current = setTimeout(load, 150)
     }
@@ -114,7 +127,8 @@ export default function Staff() {
         })}
       </nav>
 
-      <div className="mt-4">
+      <div className="mt-4 space-y-3">
+        <RushAlerts alerts={data?.rush_alerts} />
         <Alert onClose={() => setError('')}>{error}</Alert>
       </div>
 
@@ -145,9 +159,18 @@ export default function Staff() {
                 <div>
                   <p className="text-sm opacity-80 uppercase tracking-wide font-semibold">Now serving</p>
                   {data.current?.label ? (
-                    <div key={data.current.label} className="flip-in numeral text-[5rem] sm:text-[7rem] lg:text-[8rem] text-lime leading-none mt-1">
-                      {data.current.label}
-                    </div>
+                    <>
+                      <div key={data.current.label} className="flip-in numeral text-[5rem] sm:text-[7rem] lg:text-[8rem] text-lime leading-none mt-1">
+                        {data.current.label}
+                      </div>
+                      <div className="mt-4 max-w-xs">
+                        <GraceTimer
+                          secondsLeft={data.current.grace_seconds_left}
+                          responded={data.current.responded}
+                          variant="staff"
+                        />
+                      </div>
+                    </>
                   ) : (
                     <div className="mt-2">
                       <p className="text-[2rem] font-bold opacity-80">Nobody at the counter</p>
@@ -258,9 +281,23 @@ export default function Staff() {
             ) : (
               <ol className="divide-y divide-line">
                 {data.waiting.map((w) => (
-                  <li key={w.id} className="flex items-center gap-3 py-3 min-h-[52px]">
+                  <li key={w.id} className="flex items-center gap-2 sm:gap-3 py-3 min-h-[52px]">
                     <span className="numeral text-2xl font-extrabold w-20 shrink-0">{w.label}</span>
-                    <span className="flex-1 truncate text-sm">{w.user_name || 'Walk-in'}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="truncate text-sm font-medium">{w.user_name || 'Guest'}</div>
+                      <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-wide rounded-full px-2 py-0.5 ${
+                            w.queue_type === 'BOOKED' ? 'bg-[#E3EEF8] text-[#1E4D8C]' : 'bg-soft text-muted'
+                          }`}
+                        >
+                          {w.queue_type || 'WALK-IN'}
+                        </span>
+                        {w.slot_time && (
+                          <span className="text-[10px] font-semibold text-muted">Slot {w.slot_time}</span>
+                        )}
+                      </div>
+                    </div>
                     <span className="text-sm text-muted shrink-0">{waitMinutes(w.created_at)}m</span>
                     {w.priority ? (
                       <span className="shrink-0 text-xs font-bold bg-lime text-ink rounded-full px-2.5 py-1">Priority</span>
